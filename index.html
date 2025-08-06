@@ -6,9 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     canvas { background: #111; display: block; margin: 30px auto; border: 3px solid #eee; }
-    body { color: white; font-family: monospace; background: #000; text-align: center; }
+    body { color: white; font-family: monospace; background: #000; text-align: center; margin:0; padding-bottom:100px; }
     #info { margin-top: 5px; }
     #gameover { position: absolute; top:50%; left:50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); padding: 30px; border: 2px solid white; font-size: 24px; display: none; }
+    /* touch controls */
+    #controls { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 10; }
+    .ctl { width: 60px; height: 60px; background: rgba(255,255,255,0.08); border: 2px solid #666; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 24px; user-select: none; }
+    .vertical { display: flex; flex-direction: column; gap: 6px; }
   </style>
 </head>
 <body>
@@ -19,6 +23,18 @@
     <span id="status"></span> | <span id="score">Score: 0</span> | <span id="inventory">Tools Held: 0</span> | <span id="health">Health: 5</span>
   </div>
   <div id="gameover">Game Over! <br> Score: <span id="finalScore">0</span><br>Refresh to play again.</div>
+
+  <!-- on-screen controls for touch -->
+  <div id="controls">
+    <div class="vertical">
+      <div class="ctl" id="btnUp">▲</div>
+      <div style="display:flex; gap:6px; justify-content:center;">
+        <div class="ctl" id="btnLeft">◀</div>
+        <div class="ctl" id="btnDown">▼</div>
+        <div class="ctl" id="btnRight">▶</div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const canvas = document.getElementById("gameCanvas");
@@ -36,8 +52,6 @@
     let gameOver = false;
     let lastHitTime = 0;
     const hitCooldown = 500; // ms
-
-    // Base station at fixed location
     const base = { x: cols - 3, y: rows - 3, size: 2 };
 
     function randomDir() {
@@ -59,21 +73,43 @@
     for (let i = 0; i < 3; i++) spawnTool();
     for (let i = 0; i < 3; i++) spawnHazard();
 
-    document.addEventListener("keydown", (e) => {
-      if (gameOver) return;
-      if (e.key === "ArrowUp") rover.y--;
-      else if (e.key === "ArrowDown") rover.y++;
-      else if (e.key === "ArrowLeft") rover.x--;
-      else if (e.key === "ArrowRight") rover.x++;
+    // movement state + cooldown to prevent too-fast hold
+    const keys = {};
+    let lastMove = 0;
+    const moveInterval = 150; // ms between moves when holding
 
-      if (rover.x < 0) rover.x = 0;
-      if (rover.x >= cols) rover.x = cols - 1;
-      if (rover.y < 0) rover.y = 0;
-      if (rover.y >= rows) rover.y = rows - 1;
-    });
+    document.addEventListener("keydown", (e) => { keys[e.key] = true; });
+    document.addEventListener("keyup", (e) => { keys[e.key] = false; });
+
+    // touch/mouse controls binding
+    function bindBtn(id, keyName) {
+      const el = document.getElementById(id);
+      el.addEventListener("touchstart", e => { e.preventDefault(); keys[keyName] = true; });
+      el.addEventListener("touchend", e => { e.preventDefault(); keys[keyName] = false; });
+      el.addEventListener("mousedown", e => { e.preventDefault(); keys[keyName] = true; });
+      el.addEventListener("mouseup", e => { e.preventDefault(); keys[keyName] = false; });
+      el.addEventListener("mouseleave", e => { keys[keyName] = false; });
+    }
+    bindBtn("btnUp", "ArrowUp");
+    bindBtn("btnDown", "ArrowDown");
+    bindBtn("btnLeft", "ArrowLeft");
+    bindBtn("btnRight", "ArrowRight");
 
     function update() {
       if (gameOver) return;
+
+      const now = performance.now();
+      if (now - lastMove > moveInterval) {
+        if (keys["ArrowUp"]) rover.y--;
+        else if (keys["ArrowDown"]) rover.y++;
+        else if (keys["ArrowLeft"]) rover.x--;
+        else if (keys["ArrowRight"]) rover.x++;
+        lastMove = now;
+        if (rover.x < 0) rover.x = 0;
+        if (rover.x >= cols) rover.x = cols - 1;
+        if (rover.y < 0) rover.y = 0;
+        if (rover.y >= rows) rover.y = rows - 1;
+      }
 
       // Move hazards randomly
       hazards.forEach(h => {
@@ -103,8 +139,7 @@
         updateUI();
       }
 
-      // Collision with hazard, with cooldown and health
-      const now = performance.now();
+      // Hazard collision with cooldown and health
       hazards.forEach(h => {
         const hx = Math.floor(h.x);
         const hy = Math.floor(h.y);
@@ -117,8 +152,8 @@
             updateUI();
             if (health <= 0) {
               gameOver = true;
-              document.getElementById('finalScore').innerText = score;
-              document.getElementById('gameover').style.display = 'block';
+              document.getElementById("finalScore").innerText = score;
+              document.getElementById("gameover").style.display = "block";
             }
           }
         }
@@ -127,42 +162,41 @@
 
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       // grid
-      ctx.strokeStyle = '#222';
+      ctx.strokeStyle = "#222";
       for (let i = 0; i <= cols; i++) { ctx.beginPath(); ctx.moveTo(i * gridSize, 0); ctx.lineTo(i * gridSize, canvas.height); ctx.stroke(); }
       for (let i = 0; i <= rows; i++) { ctx.beginPath(); ctx.moveTo(0, i * gridSize); ctx.lineTo(canvas.width, i * gridSize); ctx.stroke(); }
 
-      // base station
-      ctx.fillStyle = 'cyan';
+      // base
+      ctx.fillStyle = "cyan";
       ctx.fillRect(base.x * gridSize, base.y * gridSize, base.size * gridSize, base.size * gridSize);
-      ctx.fillStyle = 'white';
-      ctx.fillText('BASE', base.x * gridSize + 2, base.y * gridSize + 12);
+      ctx.fillStyle = "white";
+      ctx.fillText("BASE", base.x * gridSize + 2, base.y * gridSize + 12);
 
       // tools
-      ctx.fillStyle = 'yellow';
+      ctx.fillStyle = "yellow";
       tools.forEach(t => { ctx.fillRect(t.x * gridSize + 2, t.y * gridSize + 2, gridSize - 4, gridSize - 4); });
 
       // hazards
-      ctx.fillStyle = 'red';
+      ctx.fillStyle = "red";
       hazards.forEach(h => { ctx.fillRect(Math.floor(h.x) * gridSize + 4, Math.floor(h.y) * gridSize + 4, gridSize - 8, gridSize - 8); });
 
       // rover
-      ctx.fillStyle = 'lime';
+      ctx.fillStyle = "lime";
       ctx.fillRect(rover.x * gridSize + 2, rover.y * gridSize + 2, gridSize - 4, gridSize - 4);
     }
 
     function updateUI() {
-      document.getElementById('score').innerText = `Score: ${score}`;
-      document.getElementById('inventory').innerText = `Tools Held: ${toolHeld}`;
-      document.getElementById('health').innerText = `Health: ${health}`;
+      document.getElementById("score").innerText = `Score: ${score}`;
+      document.getElementById("inventory").innerText = `Tools Held: ${toolHeld}`;
+      document.getElementById("health").innerText = `Health: ${health}`;
     }
 
-    // spawn periodically
+    // periodic spawns
     setInterval(() => { if (!gameOver && tools.length < 4) spawnTool(); }, 2000);
     setInterval(() => { if (!gameOver && hazards.length < 5) spawnHazard(); }, 4000);
 
-    // loop
+    // main loop
     function loop() { update(); draw(); if (!gameOver) requestAnimationFrame(loop); }
     loop();
   </script>
